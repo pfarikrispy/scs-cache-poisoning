@@ -1,0 +1,40 @@
+name: Deploy Trusted Cache
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    cache-mode: read
+    env:
+      FLAG: ${{ secrets.FLAG }}
+    steps:
+      - name: Require lab flag
+        run: test -n "$FLAG"
+
+      # The primary key is deliberately absent. The restore prefix selects the
+      # most recently created poisoned cache in the default-branch scope.
+      - name: Restore newest poisoned cache
+        id: poisoned-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: dist
+          key: scheduled-deploy-${{ github.run_id }}
+          restore-keys: |
+            poisoned-build-
+
+      - name: Report empty cache
+        if: steps.poisoned-cache.outputs.cache-matched-key == ''
+        run: echo "No poisoned build cache is available yet"
+
+      # Intentionally vulnerable: cached code from the untrusted build is
+      # executed in a trusted job that has access to FLAG.
+      - name: Execute cached application
+        if: steps.poisoned-cache.outputs.cache-matched-key != ''
+        run: node dist/app.js

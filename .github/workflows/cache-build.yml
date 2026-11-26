@@ -1,0 +1,39 @@
+name: Build Untrusted PR Cache
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: >-
+      github.event.issue.pull_request &&
+      github.event.comment.body == '/build'
+    runs-on: ubuntu-latest
+    # Intentionally overrides GitHub's read-only cache default for low-trust
+    # issue_comment events. This is the cache-poisoning vulnerability.
+    cache-mode: write-only
+    steps:
+      # Intentionally vulnerable: an untrusted PR is packaged by a workflow
+      # running in the default-branch cache scope.
+      - name: Checkout untrusted pull request code
+        uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.issue.number }}/head
+          persist-credentials: false
+
+      - name: Package pull request output
+        run: |
+          mkdir -p dist
+          cp app/server.js dist/app.js
+
+      # Cache entries are immutable, so every poisoning attempt uses a unique
+      # key under the prefix consumed by the scheduled trusted workflow.
+      - name: Save untrusted output in trusted cache scope
+        uses: actions/cache/save@v4
+        with:
+          path: dist
+          key: poisoned-build-pr-${{ github.event.issue.number }}-${{ github.run_id }}
